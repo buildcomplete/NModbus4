@@ -30,6 +30,7 @@ namespace MySample
                 //StartModbusTcpSlave();
                 //StartModbusUdpSlave();
                 //StartModbusAsciiSlave();
+                ModbusTcpMasterAndModbusSlaveReadAndWrite();
             }
             catch (Exception e)
             {
@@ -297,6 +298,115 @@ namespace MySample
             // Register 102=0
             // Register 103=0
             // Register 104=0
+        }
+
+        /// <summary>
+        /// Test and example of communication between ModbusMaster and MadbusSlave
+        /// Test read/write to coils
+        /// Test read/write to Holding register
+        /// taking on both roles
+        /// </summary>
+        /// <remarks>
+        /// <para>Created: chg (18-01-2018)</para>
+        /// </remarks>
+        private static void ModbusTcpMasterAndModbusSlaveReadAndWrite()
+        {
+            byte slaveId = 1;
+            int port = 502;
+            IPAddress address = new IPAddress(new byte[] { 127, 0, 0, 1 });
+
+            // create and start the TCP slave
+            TcpListener slaveTcpListener = new TcpListener(address, port);
+            slaveTcpListener.Start();
+            using (ModbusSlave slave = ModbusTcpSlave.CreateTcp(slaveId, slaveTcpListener))
+            {
+
+                // This starts the server
+                var listenTask = slave.ListenAsync();
+
+                //slave.ModbusSlaveRequestReceived += (s, e) =>
+                //    Console.WriteLine($"slave.ModbusSlaveRequestReceived({e.Message}");
+
+                //slave.WriteComplete += (s, e) =>
+                //    Console.WriteLine($"slave.WriteComplete({e.Message}");
+
+                // create the master
+                TcpClient masterTcpClient = new TcpClient(address.ToString(), port);
+                using (ModbusIpMaster master = ModbusIpMaster.CreateIp(masterTcpClient))
+                {
+                    ushort numInputs = 5;
+
+                    // Test 'master' write, and 'slave' read to coild
+                    Console.WriteLine("Test 'master' write coil, and 'slave' read coils");
+
+                    // Print coil storage before modification
+                    for (int i = 0; i < numInputs; ++i)
+                    {
+                        Console.WriteLine($"slave.Coil[{i}]={slave.DataStore.CoilDiscretes[i]}");
+                    }
+
+                    // write to zero indexed could
+                    master.WriteSingleCoil(0, true);
+
+                    // Wait for network
+                    Thread.Sleep(1000);
+
+                    // Print coil storage after modification
+                    // Notice that in the slave datastore, address '0' is at offset '1'
+                    for (int i = 0; i < numInputs; ++i)
+                    {
+                        Console.WriteLine($"slave.Coil[{i}]={slave.DataStore.CoilDiscretes[i]}");
+                    }
+
+                    // Master reads coils, notice that this is zero (0) indexed
+                    {
+                        bool[] coils = master.ReadCoils(0, numInputs);
+                        for (int i = 0; i < numInputs; i++)
+                        {
+                            Console.WriteLine($"master.Coil  {(i)}={(coils[i])}");
+                        }
+                    }
+
+                    // test 'slave' write coil, and 'master' read coils
+                    Console.WriteLine("test 'slave' write, and 'master' read");
+
+
+                    // Slave write coils, notice the '+1' since slave datastore is one (1) indexed
+                    slave.DataStore.CoilDiscretes[1 + 2] = true; // this will be coil(2) in master...
+                    slave.DataStore.CoilDiscretes[1 + 4] = true;  // this will be coil(4) in master...
+                    Thread.Sleep(1000);
+
+                    {
+                        bool[] coils = master.ReadCoils(0, numInputs);
+                        for (int i = 0; i < numInputs; i++)
+                        {
+                            Console.WriteLine($"Coils  {(i)}={(coils[i])}");
+                        }
+                    }
+
+                    // test 'slave' write holding register, and 'master' read holding registers
+                    Console.WriteLine("test 'slave' write holding register, and 'master' read holding registers");
+
+                    // Notice with holding register... I write to address one (1)
+                    // And in master i read that value from address 100+0
+                    slave.DataStore.HoldingRegisters[1] = 42;
+                    ushort startAddress = 100;
+                    Thread.Sleep(1000);
+                    // read five register values
+                    {
+                        ushort[] inputs = master.ReadHoldingRegisters(0, numInputs);
+
+                        for (int i = 0; i < numInputs; i++)
+                        {
+                            Console.WriteLine($"Register {(startAddress + i)}={(inputs[i])}");
+                        }
+                    }
+
+                    // clean up
+                    masterTcpClient.Close();
+                    slaveTcpListener.Stop();
+                }
+            }
         }
 
         /// <summary>
